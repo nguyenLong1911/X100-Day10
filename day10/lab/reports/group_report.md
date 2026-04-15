@@ -1,6 +1,6 @@
 # Báo Cáo Nhóm — Lab Day 10: Data Pipeline & Data Observability
 
-**Tên nhóm:** ___________  
+**Tên nhóm:** X100  
 **Thành viên:**
 | Tên | Vai trò (Day 10) | Email |
 |-----|------------------|-------|
@@ -12,8 +12,8 @@
 | Nguyễn Việt Long | Embed & Idempotency Owner | nguyenvietlong9k@gmail.com |
 | Nguyễn Quang Đăng | Monitoring / Docs Owner | dangnguyen12a@gmail.com |
 
-**Ngày nộp:** ___________  
-**Repo:** ___________  
+**Ngày nộp:** 15/04/2026  
+**Repo:** https://github.com/nguyenLong1911/X100-Day10  
 **Độ dài khuyến nghị:** 600–1000 từ
 
 ---
