@@ -17,6 +17,7 @@ class ExpectationResult:
     passed: bool
     severity: str  # "warn" | "halt"
     detail: str
+    metric_impact: str  # Đánh giá tác động đến metric nếu expectation này fail
 
 
 def run_expectations(cleaned_rows: List[Dict[str, Any]]) -> Tuple[List[ExpectationResult], bool]:
@@ -35,6 +36,7 @@ def run_expectations(cleaned_rows: List[Dict[str, Any]]) -> Tuple[List[Expectati
             ok,
             "halt",
             f"cleaned_rows={len(cleaned_rows)}",
+            "Pipeline trả về dữ liệu rỗng; Recall = 0%"
         )
     )
 
@@ -47,6 +49,7 @@ def run_expectations(cleaned_rows: List[Dict[str, Any]]) -> Tuple[List[Expectati
             ok2,
             "halt",
             f"empty_doc_id_count={len(bad_doc)}",
+            "Lỗi ghi dữ liệu vào Vector DB do thiếu định danh (ID)"
         )
     )
 
@@ -64,6 +67,7 @@ def run_expectations(cleaned_rows: List[Dict[str, Any]]) -> Tuple[List[Expectati
             ok3,
             "halt",
             f"violations={len(bad_refund)}",
+            "LLM có thể hallucinate chính sách hoàn tiền cũ, gây sai lệch thông tin CSKH"
         )
     )
 
@@ -76,6 +80,7 @@ def run_expectations(cleaned_rows: List[Dict[str, Any]]) -> Tuple[List[Expectati
             ok4,
             "warn",
             f"short_chunks={len(short)}",
+            "Tăng số lượng chunk rác, làm giảm độ chính xác (Precision) của Semantic Search"
         )
     )
 
@@ -92,6 +97,7 @@ def run_expectations(cleaned_rows: List[Dict[str, Any]]) -> Tuple[List[Expectati
             ok5,
             "halt",
             f"non_iso_rows={len(iso_bad)}",
+            "Tính năng Metadata Filtering theo ngày tháng sẽ bị crash hoặc trả về kết quả sai"
         )
     )
 
@@ -109,8 +115,48 @@ def run_expectations(cleaned_rows: List[Dict[str, Any]]) -> Tuple[List[Expectati
             ok6,
             "halt",
             f"violations={len(bad_hr_annual)}",
+            "Nhân sự nhận được thông tin sai về ngày phép, ảnh hưởng đến độ tin cậy của hệ thống (Trust Score giảm)"
         )
     )
 
+    # -------------------------------------------------------------------------
+    # NEW EXPECTATIONS
+    # -------------------------------------------------------------------------
+
+    # E7: Các dòng phải có đủ các trường (keys) tối thiểu để embed
+    required_keys = {"doc_id", "chunk_text"}
+    missing_keys_rows = [
+        r for r in cleaned_rows
+        if not required_keys.issubset(r.keys())
+    ]
+    ok7 = len(missing_keys_rows) == 0
+    results.append(
+        ExpectationResult(
+            "has_required_schema_keys",
+            ok7,
+            "halt",
+            f"rows_missing_keys={len(missing_keys_rows)}",
+            "Tiến trình Embedding/Lưu trữ downstream sẽ văng lỗi KeyError làm sập toàn bộ pipeline"
+        )
+    )
+
+    # E8: Phát hiện lỗi encoding (Ký tự thay thế Unicode \uFFFD)
+    bad_encoding = [
+        r for r in cleaned_rows
+        if "\ufffd" in (r.get("chunk_text") or "")
+    ]
+    ok8 = len(bad_encoding) == 0
+    results.append(
+        ExpectationResult(
+            "no_unicode_replacement_chars",
+            ok8,
+            "halt",
+            f"corrupted_rows={len(bad_encoding)}",
+            "Chất lượng RAG bị phá hủy hoàn toàn do text đầu vào bị lỗi font/mã hóa không thể đọc được"
+        )
+    )
+
+    # Kiểm tra điều kiện halt có kiểm soát
     halt = any(not r.passed and r.severity == "halt" for r in results)
+    
     return results, halt
