@@ -6,3 +6,11 @@
 day08/lab/data/grading_questions.json
 day09/lab/data/grading_questions.json
 day10/lab/data/grading_questions.json
+
+# ChromaDB local artifacts (vector index)
+day08/lab/chroma_db*/
+day09/lab/chroma_db*/
+day10/lab/chroma_db*/
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
