@@ -23,10 +23,21 @@ ALLOWED_DOC_IDS = frozenset(
     }
 )
 
+# --- BASELINE REGEX ---
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DMY_SLASH = re.compile(r"^(\d{2})/(\d{2})/(\d{4})$")
 _REFUND_14D = re.compile(r"\b14\s*ngày\s*làm\s*việc\b", flags=re.IGNORECASE)
 HR_MIN_EFFECTIVE_DATE = "2026-01-01"
+
+# --- RULE MỚI (sinh viên thêm) ---
+# Rule 4: fix_leave_10_to_12 — "10 ngày phép" là bản HR 2025 cũ, đúng là 12 ngày (2026).
+_LEAVE_10D = re.compile(r"\b10\s*ngày\s*phép\b", flags=re.IGNORECASE)
+
+# Rule 5: fix_sick_leave_stale — nghỉ ốm đúng là 10 ngày, các bản cũ ghi 5 hoặc 7 ngày.
+_SICK_LEAVE_WRONG = re.compile(r"\b(5|7)\s*ngày\s*nghỉ\s*ốm\b", flags=re.IGNORECASE)
+
+# Rule 6: fix_lockout_threshold_stale — ngưỡng khóa đúng là 5 lần, bản cũ ghi 3 hoặc 10 lần.
+_LOCKOUT_WRONG = re.compile(r"\b(3|10)\s*lần\s*đăng\s*nhập\s*sai\b", flags=re.IGNORECASE)
 
 
 def _norm_text(s: str) -> str:
@@ -37,6 +48,52 @@ def _stable_chunk_id(doc_id: str, chunk_text: str, seq: int) -> str:
     h = hashlib.sha256(f"{doc_id}|{chunk_text}|{seq}".encode("utf-8")).hexdigest()[:16]
     return f"{doc_id}_{seq}_{h}"
 
+
+# =============================================================================
+# BASELINE HELPER FUNCTIONS
+# =============================================================================
+
+
+# =============================================================================
+# RULE MỚI — HELPER FUNCTIONS (sinh viên thêm)
+# =============================================================================
+
+def _replace_leave_10_to_12(text: str) -> Tuple[str, bool]:
+    """
+    Rule 4: fix_leave_10_to_12 — sửa ngày phép năm sai 10 -> 12.
+
+    Nguồn chuẩn: hr_leave_policy.txt mục 1.1 (effective 2026-01-01).
+    Trả về (fixed_text, changed).
+    """
+    fixed, n = _LEAVE_10D.subn("12 ngày phép", text)
+    return fixed, n > 0
+
+
+def _replace_sick_leave_stale(text: str) -> Tuple[str, bool]:
+    """
+    Rule 5: fix_sick_leave_stale — sửa số ngày nghỉ ốm sai (5/7) -> 10.
+
+    Nguồn chuẩn: hr_leave_policy.txt mục 1.2 (10 ngày/năm có trả lương).
+    Trả về (fixed_text, changed).
+    """
+    fixed, n = _SICK_LEAVE_WRONG.subn("10 ngày nghỉ ốm", text)
+    return fixed, n > 0
+
+
+def _replace_lockout_threshold_stale(text: str) -> Tuple[str, bool]:
+    """
+    Rule 6: fix_lockout_threshold_stale — sửa ngưỡng khóa tài khoản sai (3/10) -> 5 lần.
+
+    Nguồn chuẩn: it_helpdesk_faq.txt Section 1 (5 lần đăng nhập sai).
+    Trả về (fixed_text, changed).
+    """
+    fixed, n = _LOCKOUT_WRONG.subn("5 lần đăng nhập sai", text)
+    return fixed, n > 0
+
+
+# =============================================================================
+# BASELINE HELPER FUNCTIONS (tiếp theo)
+# =============================================================================
 
 def _replace_refund_14d_to_7d(text: str) -> Tuple[str, bool]:
     """
@@ -82,10 +139,13 @@ def clean_rows(
     """
     Trả về (cleaned, quarantine).
 
-    Rules chính bao gồm 3 rule:
+    Rules chính bao gồm 6 rule:
     1) quarantine_hr_old: Quarantine bản HR cũ theo cutoff effective_date.
     2) fix_refund_14_to_7: Chuẩn hoá cửa sổ hoàn tiền 14 -> 7 ngày làm việc.
     3) dedupe: Quarantine bản duplicate theo (doc_id, normalized_chunk_text).
+    4) fix_leave_10_to_12: Sửa ngày phép năm sai 10 -> 12 trong hr_leave_policy.
+    5) fix_sick_leave_stale: Sửa số ngày nghỉ ốm sai (5/7) -> 10 trong hr_leave_policy.
+    6) fix_lockout_threshold_stale: Sửa ngưỡng khoá tài khoản sai (3/10) -> 5 lần trong it_helpdesk_faq.
 
     Mỗi rule mới đều ghi metric_impact để nhóm dùng làm bằng chứng non-trivial trong report.
     """
@@ -166,6 +226,7 @@ def clean_rows(
             continue
         seen_text_by_doc.add(key)
 
+        # --- BASELINE FIX RULES ---
         fixed_text = text
         fixed_applied = False
         if apply_refund_window_fix and doc_id == "policy_refund_v4":
@@ -173,6 +234,38 @@ def clean_rows(
             fixed_text, fixed_applied = _replace_refund_14d_to_7d(fixed_text)
             if fixed_applied:
                 fixed_text += " [cleaned: stale_refund_window]"
+
+        # --- RULE MỚI (sinh viên thêm) ---
+        # Rule 4: fix_leave_10_to_12
+        leave_fixed = False
+        if doc_id == "hr_leave_policy":
+            fixed_text, leave_fixed = _replace_leave_10_to_12(fixed_text)
+            if leave_fixed:
+                fixed_text += " [cleaned: stale_leave_days]"
+
+        # Rule 5: fix_sick_leave_stale
+        sick_fixed = False
+        if doc_id == "hr_leave_policy":
+            fixed_text, sick_fixed = _replace_sick_leave_stale(fixed_text)
+            if sick_fixed:
+                fixed_text += " [cleaned: stale_sick_leave]"
+
+        # Rule 6: fix_lockout_threshold_stale
+        lockout_fixed = False
+        if doc_id == "it_helpdesk_faq":
+            fixed_text, lockout_fixed = _replace_lockout_threshold_stale(fixed_text)
+            if lockout_fixed:
+                fixed_text += " [cleaned: stale_lockout_threshold]"
+
+        impacts = []
+        if fixed_applied:
+            impacts.append("refund_14_to_7_fixed+1")
+        if leave_fixed:
+            impacts.append("leave_10_to_12_fixed+1")
+        if sick_fixed:
+            impacts.append("sick_leave_stale_fixed+1")
+        if lockout_fixed:
+            impacts.append("lockout_threshold_fixed+1")
 
         seq += 1
         cleaned.append(
@@ -183,7 +276,10 @@ def clean_rows(
                 "effective_date": eff_norm,
                 "exported_at": exported_at or "",
                 "rule_fix_refund_14_to_7": fixed_applied,
-                "metric_impact": "refund_14_to_7_fixed+1" if fixed_applied else "",
+                "rule_fix_leave_10_to_12": leave_fixed,
+                "rule_fix_sick_leave_stale": sick_fixed,
+                "rule_fix_lockout_threshold_stale": lockout_fixed,
+                "metric_impact": "; ".join(impacts),
             }
         )
 
