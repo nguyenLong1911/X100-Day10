@@ -39,10 +39,12 @@ def main() -> int:
 
     try:
         import chromadb
-        from chromadb.utils import embedding_functions
     except ImportError:
-        print("Install: pip install chromadb sentence-transformers", file=sys.stderr)
+        print("Install: pip install chromadb", file=sys.stderr)
         return 1
+
+    # TODO: Embed Owner — dùng chung embedding function từ helper
+    from embedding_helper import get_chroma_client, get_collection_name, get_embedding_function
 
     qpath = Path(args.questions)
     if not qpath.is_file():
@@ -50,12 +52,9 @@ def main() -> int:
         return 1
 
     questions = json.loads(qpath.read_text(encoding="utf-8"))
-    db_path = os.environ.get("CHROMA_DB_PATH", str(ROOT / "chroma_db"))
-    collection_name = os.environ.get("CHROMA_COLLECTION", "day10_kb")
-    model_name = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-
-    client = chromadb.PersistentClient(path=db_path)
-    emb = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=model_name)
+    collection_name = get_collection_name()
+    client = get_chroma_client()
+    emb = get_embedding_function()
     try:
         col = client.get_collection(name=collection_name, embedding_function=emb)
     except Exception as e:
