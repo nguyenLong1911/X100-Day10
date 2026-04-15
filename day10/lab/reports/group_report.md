@@ -4,10 +4,13 @@
 **Thành viên:**
 | Tên | Vai trò (Day 10) | Email |
 |-----|------------------|-------|
-| ___ | Ingestion / Raw Owner | ___ |
-| ___ | Cleaning & Quality Owner | ___ |
-| ___ | Embed & Idempotency Owner | ___ |
-| ___ | Monitoring / Docs Owner | ___ |
+| Nguyễn Lâm Tùng | Ingestion / Raw Owner | nguyenlamtung2005@gmail.com |
+| Trần Gia Khánh | Ingestion / Raw Owner | giakhanh28031995@gmail.com |
+| Tống Tiến Mạnh | Cleaning & Quality Owner | tienmanhttm2018@gmail.com |
+| Hà Huy Hoàng | Cleaning & Quality Owner | masterjtrhoang171110x@gmail.com |
+| Nguyễn Minh Hiếu | Embed & Idempotency Owner | nguyenhieu16072004@gmail.com |
+| Nguyễn Việt Long | Embed & Idempotency Owner | nguyenvietlong9k@gmail.com |
+| Nguyễn Quang Đăng | Monitoring / Docs Owner | dangnguyen12a@gmail.com |
 
 **Ngày nộp:** ___________  
 **Repo:** ___________  
