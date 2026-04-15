@@ -135,12 +135,9 @@ def cmd_embed_internal(cleaned_csv: Path, *, run_id: str, log) -> bool:
         log("ERROR: chromadb chưa cài. pip install -r requirements.txt")
         return False
 
-    from embedding_utils import get_embedding_function
-
-    db_path = os.environ.get("CHROMA_DB_PATH", str(ROOT / "chroma_db"))
-    collection_name = os.environ.get("CHROMA_COLLECTION", "day10_kb")
-    model_name = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
-
+    # TODO: Embed Owner — Chroma collection + idempotency
+    # Sử dụng embedding_helper để hỗ trợ cả OpenAI API và SentenceTransformer local
+    from embedding_helper import get_chroma_client, get_collection_name, get_embedding_function
     from transform.cleaning_rules import load_raw_csv as load_csv  # same loader
 
     rows = load_csv(cleaned_csv)
@@ -148,12 +145,13 @@ def cmd_embed_internal(cleaned_csv: Path, *, run_id: str, log) -> bool:
         log("WARN: cleaned CSV rỗng — không embed.")
         return True
 
-    client = chromadb.PersistentClient(path=db_path)
-    emb = get_embedding_function(model_name=model_name)
+    collection_name = get_collection_name()
+    client = get_chroma_client()
+    emb = get_embedding_function()
     col = client.get_or_create_collection(name=collection_name, embedding_function=emb)
 
     ids = [r["chunk_id"] for r in rows]
-    # Tránh “mồi cũ” trong top-k: xóa id không còn trong cleaned run này (index = snapshot publish).
+    # Tránh "mồi cũ" trong top-k: xóa id không còn trong cleaned run này (index = snapshot publish).
     try:
         prev = col.get(include=[])
         prev_ids = set(prev.get("ids") or [])
@@ -172,7 +170,7 @@ def cmd_embed_internal(cleaned_csv: Path, *, run_id: str, log) -> bool:
         }
         for r in rows
     ]
-    # Idempotent: upsert theo chunk_id
+    # Idempotent: upsert theo chunk_id — chạy lại nhiều lần không tạo duplicate
     col.upsert(ids=ids, documents=documents, metadatas=metadatas)
     log(f"embed_upsert count={len(ids)} collection={collection_name}")
     return True
