@@ -25,6 +25,8 @@ ALLOWED_DOC_IDS = frozenset(
 
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DMY_SLASH = re.compile(r"^(\d{2})/(\d{2})/(\d{4})$")
+_REFUND_14D = re.compile(r"\b14\s*ngày\s*làm\s*việc\b", flags=re.IGNORECASE)
+HR_MIN_EFFECTIVE_DATE = "2026-01-01"
 
 
 def _norm_text(s: str) -> str:
@@ -34,6 +36,16 @@ def _norm_text(s: str) -> str:
 def _stable_chunk_id(doc_id: str, chunk_text: str, seq: int) -> str:
     h = hashlib.sha256(f"{doc_id}|{chunk_text}|{seq}".encode("utf-8")).hexdigest()[:16]
     return f"{doc_id}_{seq}_{h}"
+
+
+def _replace_refund_14d_to_7d(text: str) -> Tuple[str, bool]:
+    """
+    Rule: fix stale refund window 14 -> 7.
+
+    Trả về (fixed_text, changed).
+    """
+    fixed, changed_count = _REFUND_14D.subn("7 ngày làm việc", text)
+    return fixed, changed_count > 0
 
 
 def _normalize_effective_date(raw: str) -> Tuple[str, str]:
@@ -70,16 +82,15 @@ def clean_rows(
     """
     Trả về (cleaned, quarantine).
 
-    Baseline (mở rộng theo narrative Day 10):
-    1) Quarantine: doc_id không thuộc allowlist (export lạ / catalog sai).
-    2) Chuẩn hoá effective_date sang YYYY-MM-DD; quarantine nếu không parse được.
-    3) Quarantine: chunk hr_leave_policy có effective_date < 2026-01-01 (bản HR cũ / conflict version).
-    4) Quarantine: chunk_text rỗng hoặc effective_date rỗng sau chuẩn hoá.
-    5) Loại trùng nội dung chunk_text (giữ bản đầu).
-    6) Fix stale refund: policy_refund_v4 chứa '14 ngày làm việc' → 7 ngày.
+    Rules chính bao gồm 3 rule:
+    1) quarantine_hr_old: Quarantine bản HR cũ theo cutoff effective_date.
+    2) fix_refund_14_to_7: Chuẩn hoá cửa sổ hoàn tiền 14 -> 7 ngày làm việc.
+    3) dedupe: Quarantine bản duplicate theo (doc_id, normalized_chunk_text).
+
+    Mỗi rule mới đều ghi metric_impact để nhóm dùng làm bằng chứng non-trivial trong report.
     """
     quarantine: List[Dict[str, Any]] = []
-    seen_text: set[str] = set()
+    seen_text_by_doc: set[Tuple[str, str]] = set()
     cleaned: List[Dict[str, Any]] = []
     seq = 0
 
@@ -90,44 +101,77 @@ def clean_rows(
         exported_at = raw.get("exported_at", "")
 
         if doc_id not in ALLOWED_DOC_IDS:
-            quarantine.append({**raw, "reason": "unknown_doc_id"})
+            quarantine.append(
+                {
+                    **raw,
+                    "reason": "unknown_doc_id",
+                    "metric_impact": "quarantine_records+1",
+                }
+            )
             continue
 
         eff_norm, eff_err = _normalize_effective_date(eff_raw)
         if eff_err == "empty_effective_date":
-            quarantine.append({**raw, "reason": "missing_effective_date"})
-            continue
-        if eff_err == "invalid_effective_date_format":
-            quarantine.append({**raw, "reason": eff_err, "effective_date_raw": eff_raw})
-            continue
-
-        if doc_id == "hr_leave_policy" and eff_norm < "2026-01-01":
             quarantine.append(
                 {
                     **raw,
-                    "reason": "stale_hr_policy_effective_date",
+                    "reason": "missing_effective_date",
+                    "metric_impact": "quarantine_records+1",
+                }
+            )
+            continue
+        if eff_err == "invalid_effective_date_format":
+            quarantine.append(
+                {
+                    **raw,
+                    "reason": eff_err,
+                    "effective_date_raw": eff_raw,
+                    "metric_impact": "quarantine_records+1",
+                }
+            )
+            continue
+
+        # Rule 1: quarantine_hr_old
+        if doc_id == "hr_leave_policy" and eff_norm < HR_MIN_EFFECTIVE_DATE:
+            quarantine.append(
+                {
+                    **raw,
+                    "reason": "quarantine_hr_old",
                     "effective_date_normalized": eff_norm,
+                    "metric_impact": "quarantine_records+1; stale_hr_rows_removed+1",
                 }
             )
             continue
 
         if not text:
-            quarantine.append({**raw, "reason": "missing_chunk_text"})
+            quarantine.append(
+                {
+                    **raw,
+                    "reason": "missing_chunk_text",
+                    "metric_impact": "quarantine_records+1",
+                }
+            )
             continue
 
-        key = _norm_text(text)
-        if key in seen_text:
-            quarantine.append({**raw, "reason": "duplicate_chunk_text"})
+        # Rule 3: dedupe
+        key = (doc_id, _norm_text(text))
+        if key in seen_text_by_doc:
+            quarantine.append(
+                {
+                    **raw,
+                    "reason": "dedupe_duplicate_chunk_text",
+                    "metric_impact": "quarantine_records+1; duplicate_rows_removed+1",
+                }
+            )
             continue
-        seen_text.add(key)
+        seen_text_by_doc.add(key)
 
         fixed_text = text
+        fixed_applied = False
         if apply_refund_window_fix and doc_id == "policy_refund_v4":
-            if "14 ngày làm việc" in fixed_text:
-                fixed_text = fixed_text.replace(
-                    "14 ngày làm việc",
-                    "7 ngày làm việc",
-                )
+            # Rule 2: fix_refund_14_to_7
+            fixed_text, fixed_applied = _replace_refund_14d_to_7d(fixed_text)
+            if fixed_applied:
                 fixed_text += " [cleaned: stale_refund_window]"
 
         seq += 1
@@ -138,6 +182,8 @@ def clean_rows(
                 "chunk_text": fixed_text,
                 "effective_date": eff_norm,
                 "exported_at": exported_at or "",
+                "rule_fix_refund_14_to_7": fixed_applied,
+                "metric_impact": "refund_14_to_7_fixed+1" if fixed_applied else "",
             }
         )
 
