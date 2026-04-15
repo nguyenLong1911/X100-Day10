@@ -82,7 +82,7 @@ def clean_rows(
     """
     Trả về (cleaned, quarantine).
 
-    Rules chính (bao gồm 3 rule bạn cần mở rộng trong Sprint 2):
+    Rules chính bao gồm 3 rule:
     1) quarantine_hr_old: Quarantine bản HR cũ theo cutoff effective_date.
     2) fix_refund_14_to_7: Chuẩn hoá cửa sổ hoàn tiền 14 -> 7 ngày làm việc.
     3) dedupe: Quarantine bản duplicate theo (doc_id, normalized_chunk_text).
