@@ -1,0 +1,14 @@
+{
+  "run_id": "sprint2-redo",
+  "run_timestamp": "2026-04-15T10:15:59.723021+00:00",
+  "raw_path": "data\\raw\\policy_export_dirty.csv",
+  "raw_records": 10,
+  "cleaned_records": 6,
+  "quarantine_records": 4,
+  "latest_exported_at": "2026-04-10T08:00:00",
+  "no_refund_fix": false,
+  "skipped_validate": false,
+  "cleaned_csv": "artifacts\\cleaned\\cleaned_sprint2-redo.csv",
+  "chroma_path": "./chroma_db_sprint1",
+  "chroma_collection": "day10_kb_sprint1"
+}
